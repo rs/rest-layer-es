@@ -29,11 +29,3 @@ index.Bind("foo", resource.NewResource(foo, s, resource.DefaultConf)
 ```
 
 You may want to create as many ElasticSearch handlers with different index and/or type. You can share the same `elastic` client across all you handlers.
-
-## ElasticSearch Configuration
-
-If you want to use this handler in read-write mode, you need to activate the inline scripting by adding the following directive in the ElasticSearch nodes configuration:
-
-```
-script.inline: true
-```

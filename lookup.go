@@ -77,10 +77,10 @@ func translateQuery(q schema.Query) ([]elastic.Query, error) {
 			}
 			qs = append(qs, or)
 		case schema.In:
-			qs = append(qs, elastic.NewTermQuery(getField(t.Field), valuesToInterface(t.Values)))
+			qs = append(qs, elastic.NewTermsQuery(getField(t.Field), valuesToInterface(t.Values)...))
 		case schema.NotIn:
 			b := elastic.NewBoolQuery()
-			b.MustNot(elastic.NewTermQuery(getField(t.Field), valuesToInterface(t.Values)))
+			b.MustNot(elastic.NewTermsQuery(getField(t.Field), valuesToInterface(t.Values)...))
 			qs = append(qs, b)
 		case schema.Equal:
 			qs = append(qs, elastic.NewTermQuery(getField(t.Field), t.Value))

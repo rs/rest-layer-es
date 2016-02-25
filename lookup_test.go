@@ -114,7 +114,7 @@ func TestGetQuery(t *testing.T) {
 	s, err = callGetQuery(schema.Query{schema.In{Field: "f", Values: []schema.Value{"foo", "bar"}}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
-		"term": map[string]interface{}{
+		"terms": map[string]interface{}{
 			"f": []interface{}{"foo", "bar"},
 		},
 	}, s)
@@ -123,7 +123,7 @@ func TestGetQuery(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{
 		"bool": map[string]interface{}{
 			"must_not": map[string]interface{}{
-				"term": map[string]interface{}{
+				"terms": map[string]interface{}{
 					"f": []interface{}{"foo", "bar"},
 				},
 			},

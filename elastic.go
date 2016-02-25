@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/rs/rest-layer/resource"
@@ -39,6 +40,20 @@ func buildDoc(i *resource.Item) map[string]interface{} {
 	return d
 }
 
+func isConflict(err interface{}) bool {
+	switch e := err.(type) {
+	case *http.Response:
+		return e.StatusCode == http.StatusConflict
+	case *elastic.Error:
+		return e.Status == http.StatusConflict
+	case elastic.Error:
+		return e.Status == http.StatusConflict
+	case int:
+		return e == http.StatusConflict
+	}
+	return false
+}
+
 func buildItem(id string, d map[string]interface{}) *resource.Item {
 	i := resource.Item{
 		ID:      id,
@@ -58,6 +73,18 @@ func buildItem(id string, d map[string]interface{}) *resource.Item {
 	return &i
 }
 
+// ctxTimeout returns an ES compatible timeout argument if context has a deadline
+func ctxTimeout(ctx context.Context) string {
+	if dl, ok := ctx.Deadline(); ok {
+		dur := dl.Sub(time.Now())
+		if dur < 0 {
+			dur = 0
+		}
+		return fmt.Sprintf("%dms", int(dur/time.Millisecond))
+	}
+	return ""
+}
+
 // Insert inserts new items in the ElasticSearch index
 func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 	bulk := m.client.Bulk()
@@ -70,35 +97,119 @@ func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 		req := elastic.NewBulkIndexRequest().OpType("create").Index(m.index).Type(m.typ).Id(id).Doc(doc)
 		bulk.Add(req)
 	}
-	_, err := bulk.Do()
-	// TODO check individual errors
+	// Apply context deadline if any
+	if t := ctxTimeout(ctx); t != "" {
+		bulk.Timeout(t)
+	}
+	res, err := bulk.Do()
 	if err != nil {
+		if elastic.IsTimeout(err) {
+			err = context.DeadlineExceeded
+		}
 		err = fmt.Errorf("insert error: %v", err)
+	}
+	if res.Errors {
+		for i, f := range res.Failed() {
+			// CAVEAT on a bulk insert, if some items are in error, the operation is not atomic
+			// and the request will partially succeed. I don't see how to perform atomic bulk insert
+			// with ES.
+			if f.Error.Type == "document_already_exists_exception" {
+				err = resource.ErrConflict
+			} else {
+				err = fmt.Errorf("insert error on item #%d: %#v", i+1, f.Error)
+			}
+			break
+		}
 	}
 	return err
 }
 
+// Elastic Search provides it's own concurrency update mecanism using numerical versioning incompatible with
+// REST layer's etag system. To bridge the two, we first get the document, ensures the etag is valid and
+// use the ES document's version to perform a conditional update. This function encapsulate this check and
+// return either an error or the document version.
+func (m *Handler) validateEtag(id, etag string) (int64, error) {
+	res, err := m.client.Get().Index(m.index).Type(m.typ).Id(id).FetchSource(false).Fields("_etag").Do()
+	if elastic.IsNotFound(err) {
+		return 0, resource.ErrNotFound
+	} else if err != nil {
+		return 0, fmt.Errorf("etag check error: %v", err)
+	}
+	if f, ok := res.Fields["_etag"].([]interface{}); ok && res.Version != nil && len(f) == 1 && f[0] == etag {
+		return *res.Version, nil
+	}
+	return 0, resource.ErrConflict
+}
+
 // Update replace an item by a new one in the ElasticSearch index
 func (m *Handler) Update(ctx context.Context, item *resource.Item, original *resource.Item) error {
-	id, ok := item.ID.(string)
+	id, ok := original.ID.(string)
 	if !ok {
 		return errors.New("non string IDs are not supported with ElasticSearch")
 	}
-	doc := buildDoc(item)
-	script := elastic.NewScriptInline(`ctx._source._etag == etag && (ctx._source = doc)`)
-	script.Lang("groovy")
-	script.Param("etag", item.ETag)
-	script.Param("doc", doc)
-	_, err := m.client.Update().Index(m.index).Type(m.typ).Id(id).Script(script).Do()
+	ver, err := m.validateEtag(id, original.ETag)
 	if err != nil {
-		err = fmt.Errorf("update error: %v", err)
+		return err
+	}
+	// Check if context is still valid
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	doc := buildDoc(item)
+	u := m.client.Update().Index(m.index).Type(m.typ)
+	// Apply context deadline if any
+	if t := ctxTimeout(ctx); t != "" {
+		u.Timeout(t)
+	}
+	_, err = u.Id(id).Doc(doc).Version(ver).Do()
+	if err != nil {
+		// Translate some generic errors
+		if elastic.IsTimeout(err) {
+			err = context.DeadlineExceeded
+		} else if isConflict(err) {
+			err = resource.ErrConflict
+		} else if elastic.IsNotFound(err) {
+			err = resource.ErrNotFound
+		} else {
+			err = fmt.Errorf("update error: %v", err)
+		}
 	}
 	return err
 }
 
 // Delete deletes an item from the ElasticSearch index
 func (m *Handler) Delete(ctx context.Context, item *resource.Item) error {
-	return resource.ErrNotImplemented
+	id, ok := item.ID.(string)
+	if !ok {
+		return errors.New("non string IDs are not supported with ElasticSearch")
+	}
+	ver, err := m.validateEtag(id, item.ETag)
+	if err != nil {
+		return err
+	}
+	// Check if context is still valid
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	d := m.client.Delete().Index(m.index).Type(m.typ)
+	// Apply context deadline if any
+	if t := ctxTimeout(ctx); t != "" {
+		d.Timeout(t)
+	}
+	_, err = d.Id(id).Version(ver).Do()
+	if err != nil {
+		// Translate some generic errors
+		if elastic.IsTimeout(err) {
+			err = context.DeadlineExceeded
+		} else if isConflict(err) {
+			err = resource.ErrConflict
+		} else if elastic.IsNotFound(err) {
+			err = resource.ErrNotFound
+		} else {
+			err = fmt.Errorf("update error: %v", err)
+		}
+	}
+	return err
 }
 
 // Clear clears all items from the ElasticSearch index matching the lookup
@@ -119,6 +230,12 @@ func (m *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 
 	s := m.client.Search().Index(m.index).Type(m.typ)
 
+	// Apply context deadline if any
+	if t := ctxTimeout(ctx); t != "" {
+		s.Timeout(t)
+	}
+
+	// Apply query
 	q, err := getQuery(lookup)
 	if err != nil {
 		return nil, fmt.Errorf("find query tranlation error (index=%s, type=%s): %v", m.index, m.typ, err)
@@ -127,16 +244,23 @@ func (m *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 		s.Query(q)
 	}
 
+	// Apply sort
 	if sf := getSort(lookup); len(sf) > 0 {
 		s.SortBy(sf...)
 	}
 
+	// Apply pagination
 	if perPage >= 0 {
 		s.From(page).Size(perPage)
 	}
 
+	// Perform query
 	res, err := s.Do()
+	// Translate some generic errors
 	if err != nil {
+		if elastic.IsTimeout(err) {
+			err = context.DeadlineExceeded
+		}
 		return nil, fmt.Errorf("find error (index=%s, type=%s): %v", m.index, m.typ, err)
 	}
 
