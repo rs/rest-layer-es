@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"time"
 
 	"github.com/rs/rest-layer/resource"
 	"github.com/rs/rest-layer/schema"
@@ -30,61 +28,6 @@ func NewHandler(client *elastic.Client, index, typ string) *Handler {
 	}
 }
 
-func buildDoc(i *resource.Item) map[string]interface{} {
-	d := map[string]interface{}{}
-	for k, v := range i.Payload {
-		d[k] = v
-	}
-	d["_etag"] = i.ETag
-	d["_updated"] = i.Updated
-	return d
-}
-
-func isConflict(err interface{}) bool {
-	switch e := err.(type) {
-	case *http.Response:
-		return e.StatusCode == http.StatusConflict
-	case *elastic.Error:
-		return e.Status == http.StatusConflict
-	case elastic.Error:
-		return e.Status == http.StatusConflict
-	case int:
-		return e == http.StatusConflict
-	}
-	return false
-}
-
-func buildItem(id string, d map[string]interface{}) *resource.Item {
-	i := resource.Item{
-		ID:      id,
-		Payload: map[string]interface{}{},
-	}
-	if etag, ok := d["_etag"].(string); ok {
-		i.ETag = etag
-	}
-	if updated, ok := d["_updated"].(time.Time); ok {
-		i.Updated = updated
-	}
-	for k, v := range d {
-		if k != "_etag" && k != "_updated" {
-			i.Payload[k] = v
-		}
-	}
-	return &i
-}
-
-// ctxTimeout returns an ES compatible timeout argument if context has a deadline
-func ctxTimeout(ctx context.Context) string {
-	if dl, ok := ctx.Deadline(); ok {
-		dur := dl.Sub(time.Now())
-		if dur < 0 {
-			dur = 0
-		}
-		return fmt.Sprintf("%dms", int(dur/time.Millisecond))
-	}
-	return ""
-}
-
 // Insert inserts new items in the ElasticSearch index
 func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 	bulk := m.client.Bulk()
@@ -103,12 +46,10 @@ func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 	}
 	res, err := bulk.Do()
 	if err != nil {
-		if elastic.IsTimeout(err) {
-			err = context.DeadlineExceeded
+		if !translateError(&err) {
+			err = fmt.Errorf("insert error: %v", err)
 		}
-		err = fmt.Errorf("insert error: %v", err)
-	}
-	if res.Errors {
+	} else if res.Errors {
 		for i, f := range res.Failed() {
 			// CAVEAT on a bulk insert, if some items are in error, the operation is not atomic
 			// and the request will partially succeed. I don't see how to perform atomic bulk insert
@@ -129,13 +70,14 @@ func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 // use the ES document's version to perform a conditional update. This function encapsulate this check and
 // return either an error or the document version.
 func (m *Handler) validateEtag(id, etag string) (int64, error) {
-	res, err := m.client.Get().Index(m.index).Type(m.typ).Id(id).FetchSource(false).Fields("_etag").Do()
-	if elastic.IsNotFound(err) {
-		return 0, resource.ErrNotFound
-	} else if err != nil {
-		return 0, fmt.Errorf("etag check error: %v", err)
+	res, err := m.client.Get().Index(m.index).Type(m.typ).Id(id).FetchSource(false).Fields(etagField).Do()
+	if err != nil {
+		if !translateError(&err) {
+			err = fmt.Errorf("etag check error: %v", err)
+		}
+		return 0, err
 	}
-	if f, ok := res.Fields["_etag"].([]interface{}); ok && res.Version != nil && len(f) == 1 && f[0] == etag {
+	if f, ok := res.Fields[etagField].([]interface{}); ok && res.Version != nil && len(f) == 1 && f[0] == etag {
 		return *res.Version, nil
 	}
 	return 0, resource.ErrConflict
@@ -163,14 +105,7 @@ func (m *Handler) Update(ctx context.Context, item *resource.Item, original *res
 	}
 	_, err = u.Id(id).Doc(doc).Version(ver).Do()
 	if err != nil {
-		// Translate some generic errors
-		if elastic.IsTimeout(err) {
-			err = context.DeadlineExceeded
-		} else if isConflict(err) {
-			err = resource.ErrConflict
-		} else if elastic.IsNotFound(err) {
-			err = resource.ErrNotFound
-		} else {
+		if !translateError(&err) {
 			err = fmt.Errorf("update error: %v", err)
 		}
 	}
@@ -198,15 +133,8 @@ func (m *Handler) Delete(ctx context.Context, item *resource.Item) error {
 	}
 	_, err = d.Id(id).Version(ver).Do()
 	if err != nil {
-		// Translate some generic errors
-		if elastic.IsTimeout(err) {
-			err = context.DeadlineExceeded
-		} else if isConflict(err) {
-			err = resource.ErrConflict
-		} else if elastic.IsNotFound(err) {
-			err = resource.ErrNotFound
-		} else {
-			err = fmt.Errorf("update error: %v", err)
+		if !translateError(&err) {
+			err = fmt.Errorf("delete error: %v", err)
 		}
 	}
 	return err
