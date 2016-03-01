@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/rs/rest-layer/resource"
-	"github.com/rs/rest-layer/schema"
 	"golang.org/x/net/context"
 	"gopkg.in/olivere/elastic.v3"
 )
@@ -157,15 +156,6 @@ func (h *Handler) Clear(ctx context.Context, lookup *resource.Lookup) (int, erro
 
 // Find items from the ElasticSearch index matching the provided lookup
 func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPage int) (*resource.ItemList, error) {
-	// When query pattern is a single document request by its id, use the ES GET API
-	if q := lookup.Filter(); len(q) == 1 && page == 1 && perPage == 1 {
-		if eq, ok := q[0].(schema.Equal); ok && eq.Field == "id" {
-			if id, ok := eq.Value.(string); ok {
-				return h.get(ctx, id)
-			}
-		}
-	}
-
 	s := h.client.Search().Index(h.index).Type(h.typ)
 
 	// Apply context deadline if any
@@ -222,25 +212,45 @@ func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 	return list, nil
 }
 
-// get uses the ES GET API to retrieve a single document by its id instead of performing a
-// slower search.
-func (h *Handler) get(ctx context.Context, id string) (*resource.ItemList, error) {
-	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).Do()
-	if err != nil && !elastic.IsNotFound(err) {
+// MultiGet implements the optional MultiGetter interface
+func (h *Handler) MultiGet(ctx context.Context, ids []interface{}) ([]*resource.Item, error) {
+	g := h.client.MultiGet()
+
+	// Add item ids to retreive
+	for _, v := range ids {
+		id, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("non string IDs are not supported with ElasticSearch (index=%s, type=%s, id=%#v)",
+				h.index, h.typ, v)
+		}
+		g.Add(elastic.NewMultiGetItem().Index(h.index).Type(h.typ).Id(id))
+	}
+
+	res, err := g.Do()
+
+	if err != nil {
 		if !translateError(&err) {
-			err = fmt.Errorf("find item error (index=%s, type=%s, id=%s): %v", h.index, h.typ, id, err)
+			err = fmt.Errorf("multi get error (index=%s, type=%s, ids=%s): %v", h.index, h.typ, ids, err)
 		}
 		return nil, err
 	}
-	list := &resource.ItemList{Page: 1, Total: 0, Items: []*resource.Item{}}
-	if elastic.IsNotFound(err) {
-		return list, nil
+
+	total := 0
+	for _, subRes := range res.Docs {
+		if subRes.Found {
+			total++
+		}
 	}
-	d := map[string]interface{}{}
-	if err = json.Unmarshal(*res.Source, &d); err != nil {
-		return nil, fmt.Errorf("find item unmarshaling error: %v", err)
+	items := make([]*resource.Item, total)
+	for i, subRes := range res.Docs {
+		if !subRes.Found {
+			continue
+		}
+		d := map[string]interface{}{}
+		if err = json.Unmarshal(*subRes.Source, &d); err != nil {
+			return nil, fmt.Errorf("multi get unmarshaling error (index=%s, type=%s, id=%s): %v", h.index, h.typ, subRes.Id, err)
+		}
+		items[i] = buildItem(subRes.Id, d)
 	}
-	list.Total = 1
-	list.Items = append(list.Items, buildItem(id, d))
-	return list, nil
+	return items, nil
 }

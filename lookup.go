@@ -110,11 +110,3 @@ func translateQuery(q schema.Query) ([]elastic.Query, error) {
 	}
 	return qs, nil
 }
-
-func valuesToInterface(v []schema.Value) []interface{} {
-	I := make([]interface{}, len(v))
-	for i, _v := range v {
-		I[i] = _v
-	}
-	return I
-}

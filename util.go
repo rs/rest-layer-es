@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rs/rest-layer/resource"
+	"github.com/rs/rest-layer/schema"
 	"golang.org/x/net/context"
 	"gopkg.in/olivere/elastic.v3"
 )
@@ -82,4 +83,12 @@ func ctxTimeout(ctx context.Context) string {
 		return fmt.Sprintf("%dms", int(dur/time.Millisecond))
 	}
 	return ""
+}
+
+func valuesToInterface(v []schema.Value) []interface{} {
+	I := make([]interface{}, len(v))
+	for i, _v := range v {
+		I[i] = _v
+	}
+	return I
 }
