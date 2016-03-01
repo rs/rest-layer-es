@@ -151,47 +151,108 @@ func TestClear(t *testing.T) {
 	if !assert.NoError(t, err) {
 		return
 	}
-	// defer cleanup(c, "testclear")()
+	defer cleanup(c, "testclear")()
 	h := NewHandler(c, "testclear", "test")
 	items := []*resource.Item{
-		{
-			ID: "1",
-			Payload: map[string]interface{}{
-				"name": "a",
-			},
-		},
-		{
-			ID: "2",
-			Payload: map[string]interface{}{
-				"name": "b",
-			},
-		},
-		{
-			ID: "3",
-			Payload: map[string]interface{}{
-				"name": "c",
-			},
-		},
-		{
-			ID: "4",
-			Payload: map[string]interface{}{
-				"name": "d",
-			},
-		},
+		{ID: "1", Payload: map[string]interface{}{"name": "a"}},
+		{ID: "2", Payload: map[string]interface{}{"name": "b"}},
+		{ID: "3", Payload: map[string]interface{}{"name": "c"}},
+		{ID: "4", Payload: map[string]interface{}{"name": "d"}},
 	}
 
 	err = h.Insert(context.Background(), items)
 	assert.NoError(t, err)
 
-	lookup := resource.NewLookup()
-	lookup.AddQuery(schema.Query{schema.In{Field: "name", Values: []schema.Value{"c", "d"}}})
+	lookup := resource.NewLookupWithQuery(schema.Query{
+		schema.In{Field: "name", Values: []schema.Value{"c", "d"}},
+	})
 	deleted, err := h.Clear(context.Background(), lookup)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, deleted)
 
-	lookup = resource.NewLookup()
-	lookup.AddQuery(schema.Query{schema.Equal{Field: "id", Value: "2"}})
+	lookup = resource.NewLookupWithQuery(schema.Query{
+		schema.Equal{Field: "id", Value: "2"},
+	})
 	deleted, err = h.Clear(context.Background(), lookup)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, deleted)
+}
+
+func TestFind(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+	c, err := elastic.NewClient()
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer cleanup(c, "testfind")()
+	h := NewHandler(c, "testfind", "test")
+	h.Refresh = true
+	h2 := NewHandler(c, "testfind", "test2")
+	h2.Refresh = true
+	items := []*resource.Item{
+		{ID: "1", Payload: map[string]interface{}{"name": "a", "age": 1}},
+		{ID: "2", Payload: map[string]interface{}{"name": "b", "age": 2}},
+		{ID: "3", Payload: map[string]interface{}{"name": "c", "age": 3}},
+		{ID: "4", Payload: map[string]interface{}{"name": "d", "age": 4}},
+	}
+	ctx := context.Background()
+	assert.NoError(t, h.Insert(ctx, items))
+	assert.NoError(t, h2.Insert(ctx, items))
+
+	lookup := resource.NewLookup()
+	l, err := h.Find(ctx, lookup, 1, -1)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 1, l.Page)
+		assert.Equal(t, 4, l.Total)
+		assert.Len(t, l.Items, 4)
+		// Do not check result's content as its order is unpredictable
+	}
+
+	lookup = resource.NewLookupWithQuery(schema.Query{
+		schema.Equal{Field: "name", Value: "c"},
+	})
+	l, err = h.Find(ctx, lookup, 1, 100)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 1, l.Page)
+		assert.Equal(t, 1, l.Total)
+		if assert.Len(t, l.Items, 1) {
+			item := l.Items[0]
+			assert.Equal(t, "3", item.ID)
+			assert.Equal(t, map[string]interface{}{"name": "c", "age": float64(3)}, item.Payload)
+		}
+	}
+
+	lookup = resource.NewLookupWithQuery(schema.Query{
+		schema.Equal{Field: "id", Value: "3"},
+	})
+	l, err = h.Find(ctx, lookup, 1, 1)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 1, l.Page)
+		assert.Equal(t, 1, l.Total)
+		if assert.Len(t, l.Items, 1) {
+			item := l.Items[0]
+			assert.Equal(t, "3", item.ID)
+			assert.Equal(t, map[string]interface{}{"name": "c", "age": float64(3)}, item.Payload)
+		}
+	}
+
+	lookup = resource.NewLookupWithQuery(schema.Query{
+		schema.In{Field: "name", Values: []schema.Value{"c", "d"}},
+	})
+	lookup.SetSorts([]string{"name"})
+	l, err = h.Find(ctx, lookup, 1, 100)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 1, l.Page)
+		assert.Equal(t, 2, l.Total)
+		if assert.Len(t, l.Items, 2) {
+			item := l.Items[0]
+			assert.Equal(t, "3", item.ID)
+			assert.Equal(t, map[string]interface{}{"name": "c", "age": float64(3)}, item.Payload)
+			item = l.Items[1]
+			assert.Equal(t, "4", item.ID)
+			assert.Equal(t, map[string]interface{}{"name": "d", "age": float64(4)}, item.Payload)
+		}
+	}
 }

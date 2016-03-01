@@ -17,6 +17,10 @@ type Handler struct {
 	client *elastic.Client
 	index  string
 	typ    string
+	// Refresh sets the refresh flag to true on all write operation to ensure
+	// writes are reflected into search results immediately after the operation.
+	// Setting this parameter to true has performance impacts.
+	Refresh bool
 }
 
 // NewHandler creates an new ElasticSearch storage handler for the given index/type
@@ -29,21 +33,23 @@ func NewHandler(client *elastic.Client, index, typ string) *Handler {
 }
 
 // Insert inserts new items in the ElasticSearch index
-func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
-	bulk := m.client.Bulk()
+func (h *Handler) Insert(ctx context.Context, items []*resource.Item) error {
+	bulk := h.client.Bulk()
 	for _, item := range items {
 		id, ok := item.ID.(string)
 		if !ok {
 			return errors.New("non string IDs are not supported with ElasticSearch")
 		}
 		doc := buildDoc(item)
-		req := elastic.NewBulkIndexRequest().OpType("create").Index(m.index).Type(m.typ).Id(id).Doc(doc)
+		req := elastic.NewBulkIndexRequest().OpType("create").Index(h.index).Type(h.typ).Id(id).Doc(doc)
 		bulk.Add(req)
 	}
 	// Apply context deadline if any
 	if t := ctxTimeout(ctx); t != "" {
 		bulk.Timeout(t)
 	}
+	// Set the refresh flag to true if requested
+	bulk.Refresh(h.Refresh)
 	res, err := bulk.Do()
 	if err != nil {
 		if !translateError(&err) {
@@ -69,8 +75,8 @@ func (m *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 // REST layer's etag system. To bridge the two, we first get the document, ensures the etag is valid and
 // use the ES document's version to perform a conditional update. This function encapsulate this check and
 // return either an error or the document version.
-func (m *Handler) validateEtag(id, etag string) (int64, error) {
-	res, err := m.client.Get().Index(m.index).Type(m.typ).Id(id).FetchSource(false).Fields(etagField).Do()
+func (h *Handler) validateEtag(id, etag string) (int64, error) {
+	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).FetchSource(false).Fields(etagField).Do()
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("etag check error: %v", err)
@@ -84,12 +90,12 @@ func (m *Handler) validateEtag(id, etag string) (int64, error) {
 }
 
 // Update replace an item by a new one in the ElasticSearch index
-func (m *Handler) Update(ctx context.Context, item *resource.Item, original *resource.Item) error {
+func (h *Handler) Update(ctx context.Context, item *resource.Item, original *resource.Item) error {
 	id, ok := original.ID.(string)
 	if !ok {
 		return errors.New("non string IDs are not supported with ElasticSearch")
 	}
-	ver, err := m.validateEtag(id, original.ETag)
+	ver, err := h.validateEtag(id, original.ETag)
 	if err != nil {
 		return err
 	}
@@ -98,7 +104,9 @@ func (m *Handler) Update(ctx context.Context, item *resource.Item, original *res
 		return ctx.Err()
 	}
 	doc := buildDoc(item)
-	u := m.client.Update().Index(m.index).Type(m.typ)
+	u := h.client.Update().Index(h.index).Type(h.typ)
+	// Set the refresh flag to true if requested
+	u.Refresh(h.Refresh)
 	// Apply context deadline if any
 	if t := ctxTimeout(ctx); t != "" {
 		u.Timeout(t)
@@ -113,12 +121,12 @@ func (m *Handler) Update(ctx context.Context, item *resource.Item, original *res
 }
 
 // Delete deletes an item from the ElasticSearch index
-func (m *Handler) Delete(ctx context.Context, item *resource.Item) error {
+func (h *Handler) Delete(ctx context.Context, item *resource.Item) error {
 	id, ok := item.ID.(string)
 	if !ok {
 		return errors.New("non string IDs are not supported with ElasticSearch")
 	}
-	ver, err := m.validateEtag(id, item.ETag)
+	ver, err := h.validateEtag(id, item.ETag)
 	if err != nil {
 		return err
 	}
@@ -126,11 +134,13 @@ func (m *Handler) Delete(ctx context.Context, item *resource.Item) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	d := m.client.Delete().Index(m.index).Type(m.typ)
+	d := h.client.Delete().Index(h.index).Type(h.typ)
 	// Apply context deadline if any
 	if t := ctxTimeout(ctx); t != "" {
 		d.Timeout(t)
 	}
+	// Set the refresh flag to true if requested
+	d.Refresh(h.Refresh)
 	_, err = d.Id(id).Version(ver).Do()
 	if err != nil {
 		if !translateError(&err) {
@@ -141,22 +151,22 @@ func (m *Handler) Delete(ctx context.Context, item *resource.Item) error {
 }
 
 // Clear clears all items from the ElasticSearch index matching the lookup
-func (m *Handler) Clear(ctx context.Context, lookup *resource.Lookup) (int, error) {
+func (h *Handler) Clear(ctx context.Context, lookup *resource.Lookup) (int, error) {
 	return 0, resource.ErrNotImplemented
 }
 
 // Find items from the ElasticSearch index matching the provided lookup
-func (m *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPage int) (*resource.ItemList, error) {
+func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPage int) (*resource.ItemList, error) {
 	// When query pattern is a single document request by its id, use the ES GET API
 	if q := lookup.Filter(); len(q) == 1 && page == 1 && perPage == 1 {
 		if eq, ok := q[0].(schema.Equal); ok && eq.Field == "id" {
 			if id, ok := eq.Value.(string); ok {
-				return m.get(ctx, id)
+				return h.get(ctx, id)
 			}
 		}
 	}
 
-	s := m.client.Search().Index(m.index).Type(m.typ)
+	s := h.client.Search().Index(h.index).Type(h.typ)
 
 	// Apply context deadline if any
 	if t := ctxTimeout(ctx); t != "" {
@@ -166,7 +176,7 @@ func (m *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 	// Apply query
 	q, err := getQuery(lookup)
 	if err != nil {
-		return nil, fmt.Errorf("find query tranlation error (index=%s, type=%s): %v", m.index, m.typ, err)
+		return nil, fmt.Errorf("find query tranlation error (index=%s, type=%s): %v", h.index, h.typ, err)
 	}
 	if q != nil {
 		s.Query(q)
@@ -179,33 +189,34 @@ func (m *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 
 	// Apply pagination
 	if perPage >= 0 {
-		s.From(page).Size(perPage)
+		s.From((page - 1) * perPage).Size(perPage)
 	}
 
 	// Perform query
 	res, err := s.Do()
 	// Translate some generic errors
 	if err != nil {
-		if elastic.IsTimeout(err) {
-			err = context.DeadlineExceeded
+		if !translateError(&err) {
+			err = fmt.Errorf("find error (index=%s, type=%s): %v", h.index, h.typ, err)
 		}
-		return nil, fmt.Errorf("find error (index=%s, type=%s): %v", m.index, m.typ, err)
+		return nil, err
 	}
 
 	// Fetch the result and return it as a resource.ItemList
 	list := &resource.ItemList{Page: page, Total: 0, Items: []*resource.Item{}}
-	if res.Hits == nil {
+	if res.Hits == nil || res.Hits.TotalHits == 0 {
 		return list, nil
 	}
 
 	list.Total = int(res.Hits.TotalHits)
+	list.Items = make([]*resource.Item, len(res.Hits.Hits))
 	for i, hit := range res.Hits.Hits {
 		d := map[string]interface{}{}
 		err := json.Unmarshal(*hit.Source, &d)
 		if err != nil {
 			return nil, fmt.Errorf("find unmarshaling error for item #%d: %v", i+1, err)
 		}
-		list.Items = append(list.Items, buildItem(hit.Id, d))
+		list.Items[i] = buildItem(hit.Id, d)
 	}
 
 	return list, nil
@@ -213,10 +224,13 @@ func (m *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 
 // get uses the ES GET API to retrieve a single document by its id instead of performing a
 // slower search.
-func (m *Handler) get(ctx context.Context, id string) (*resource.ItemList, error) {
-	res, err := m.client.Get().Index(m.index).Type(m.typ).Id(id).Do()
+func (h *Handler) get(ctx context.Context, id string) (*resource.ItemList, error) {
+	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).Do()
 	if err != nil && !elastic.IsNotFound(err) {
-		return nil, fmt.Errorf("find item error (index=%s, type=%s, id=%s): %v", m.index, m.typ, id, err)
+		if !translateError(&err) {
+			err = fmt.Errorf("find item error (index=%s, type=%s, id=%s): %v", h.index, h.typ, id, err)
+		}
+		return nil, err
 	}
 	list := &resource.ItemList{Page: 1, Total: 0, Items: []*resource.Item{}}
 	if elastic.IsNotFound(err) {
@@ -226,6 +240,7 @@ func (m *Handler) get(ctx context.Context, id string) (*resource.ItemList, error
 	if err = json.Unmarshal(*res.Source, &d); err != nil {
 		return nil, fmt.Errorf("find item unmarshaling error: %v", err)
 	}
+	list.Total = 1
 	list.Items = append(list.Items, buildItem(id, d))
 	return list, nil
 }
