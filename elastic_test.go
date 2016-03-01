@@ -43,6 +43,7 @@ func TestInsert(t *testing.T) {
 			ETag:    "etag",
 			Updated: now,
 			Payload: map[string]interface{}{
+				"id":  "1234",
 				"foo": "bar",
 			},
 		},
@@ -80,6 +81,7 @@ func TestUpdate(t *testing.T) {
 		ETag:    "etag1",
 		Updated: now,
 		Payload: map[string]interface{}{
+			"id":  "1234",
 			"foo": "bar",
 		},
 	}
@@ -88,6 +90,7 @@ func TestUpdate(t *testing.T) {
 		ETag:    "etag2",
 		Updated: now,
 		Payload: map[string]interface{}{
+			"id":  "1234",
 			"foo": "baz",
 		},
 	}
@@ -121,6 +124,7 @@ func TestDelete(t *testing.T) {
 		ETag:    "etag1",
 		Updated: now,
 		Payload: map[string]interface{}{
+			"id":  "1234",
 			"foo": "bar",
 		},
 	}
@@ -154,10 +158,10 @@ func TestClear(t *testing.T) {
 	defer cleanup(c, "testclear")()
 	h := NewHandler(c, "testclear", "test")
 	items := []*resource.Item{
-		{ID: "1", Payload: map[string]interface{}{"name": "a"}},
-		{ID: "2", Payload: map[string]interface{}{"name": "b"}},
-		{ID: "3", Payload: map[string]interface{}{"name": "c"}},
-		{ID: "4", Payload: map[string]interface{}{"name": "d"}},
+		{ID: "1", Payload: map[string]interface{}{"id": "1", "name": "a"}},
+		{ID: "2", Payload: map[string]interface{}{"id": "2", "name": "b"}},
+		{ID: "3", Payload: map[string]interface{}{"id": "3", "name": "c"}},
+		{ID: "4", Payload: map[string]interface{}{"id": "4", "name": "d"}},
 	}
 
 	err = h.Insert(context.Background(), items)
@@ -192,10 +196,10 @@ func TestFind(t *testing.T) {
 	h2 := NewHandler(c, "testfind", "test2")
 	h2.Refresh = true
 	items := []*resource.Item{
-		{ID: "1", Payload: map[string]interface{}{"name": "a", "age": 1}},
-		{ID: "2", Payload: map[string]interface{}{"name": "b", "age": 2}},
-		{ID: "3", Payload: map[string]interface{}{"name": "c", "age": 3}},
-		{ID: "4", Payload: map[string]interface{}{"name": "d", "age": 4}},
+		{ID: "1", Payload: map[string]interface{}{"id": "1", "name": "a", "age": 1}},
+		{ID: "2", Payload: map[string]interface{}{"id": "2", "name": "b", "age": 2}},
+		{ID: "3", Payload: map[string]interface{}{"id": "3", "name": "c", "age": 3}},
+		{ID: "4", Payload: map[string]interface{}{"id": "4", "name": "d", "age": 4}},
 	}
 	ctx := context.Background()
 	assert.NoError(t, h.Insert(ctx, items))
@@ -220,7 +224,7 @@ func TestFind(t *testing.T) {
 		if assert.Len(t, l.Items, 1) {
 			item := l.Items[0]
 			assert.Equal(t, "3", item.ID)
-			assert.Equal(t, map[string]interface{}{"name": "c", "age": float64(3)}, item.Payload)
+			assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
 		}
 	}
 
@@ -235,10 +239,10 @@ func TestFind(t *testing.T) {
 		if assert.Len(t, l.Items, 2) {
 			item := l.Items[0]
 			assert.Equal(t, "3", item.ID)
-			assert.Equal(t, map[string]interface{}{"name": "c", "age": float64(3)}, item.Payload)
+			assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
 			item = l.Items[1]
 			assert.Equal(t, "4", item.ID)
-			assert.Equal(t, map[string]interface{}{"name": "d", "age": float64(4)}, item.Payload)
+			assert.Equal(t, map[string]interface{}{"id": "4", "name": "d", "age": float64(4)}, item.Payload)
 		}
 	}
 
@@ -252,7 +256,7 @@ func TestFind(t *testing.T) {
 		if assert.Len(t, l.Items, 1) {
 			item := l.Items[0]
 			assert.Equal(t, "3", item.ID)
-			assert.Equal(t, map[string]interface{}{"name": "c", "age": float64(3)}, item.Payload)
+			assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
 		}
 	}
 

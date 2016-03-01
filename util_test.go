@@ -19,19 +19,19 @@ func TestBuildDoc(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"foo": "bar"},
 		buildDoc(&resource.Item{Payload: map[string]interface{}{"foo": "bar"}}))
 	assert.Equal(t, map[string]interface{}{"foo": "bar", "_etag": "123"},
-		buildDoc(&resource.Item{Payload: map[string]interface{}{"foo": "bar"}, ETag: "123"}))
+		buildDoc(&resource.Item{Payload: map[string]interface{}{"id": "1", "foo": "bar"}, ETag: "123"}))
 	assert.Equal(t, map[string]interface{}{"foo": "bar", "_updated": now},
-		buildDoc(&resource.Item{Payload: map[string]interface{}{"foo": "bar"}, Updated: now}))
+		buildDoc(&resource.Item{Payload: map[string]interface{}{"id": "1", "foo": "bar"}, Updated: now}))
 }
 
 func TestBuildItem(t *testing.T) {
-	assert.Equal(t, &resource.Item{ID: "1", Payload: map[string]interface{}{}},
+	assert.Equal(t, &resource.Item{ID: "1", Payload: map[string]interface{}{"id": "1"}},
 		buildItem("1", map[string]interface{}{}))
-	assert.Equal(t, &resource.Item{ID: "1", Payload: map[string]interface{}{"foo": "bar"}},
+	assert.Equal(t, &resource.Item{ID: "1", Payload: map[string]interface{}{"id": "1", "foo": "bar"}},
 		buildItem("1", map[string]interface{}{"foo": "bar"}))
-	assert.Equal(t, &resource.Item{ID: "1", ETag: "123", Payload: map[string]interface{}{"foo": "bar"}},
+	assert.Equal(t, &resource.Item{ID: "1", ETag: "123", Payload: map[string]interface{}{"id": "1", "foo": "bar"}},
 		buildItem("1", map[string]interface{}{"foo": "bar", "_etag": "123"}))
-	assert.Equal(t, &resource.Item{ID: "1", Updated: now, Payload: map[string]interface{}{"foo": "bar"}},
+	assert.Equal(t, &resource.Item{ID: "1", Updated: now, Payload: map[string]interface{}{"id": "1", "foo": "bar"}},
 		buildItem("1", map[string]interface{}{"foo": "bar", "_updated": now}))
 }
 

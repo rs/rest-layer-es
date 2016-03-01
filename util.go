@@ -18,9 +18,12 @@ const (
 
 // buildDoc builds an ElasticSearch document from a resource.Item
 func buildDoc(i *resource.Item) map[string]interface{} {
+	// Filter out id from the payload so we don't store it twice
 	d := map[string]interface{}{}
 	for k, v := range i.Payload {
-		d[k] = v
+		if k != "id" {
+			d[k] = v
+		}
 	}
 	if i.ETag != "" {
 		d[etagField] = i.ETag
@@ -35,7 +38,7 @@ func buildDoc(i *resource.Item) map[string]interface{} {
 func buildItem(id string, d map[string]interface{}) *resource.Item {
 	i := resource.Item{
 		ID:      id,
-		Payload: map[string]interface{}{},
+		Payload: map[string]interface{}{"id": id},
 	}
 	if etag, ok := d[etagField].(string); ok {
 		i.ETag = etag
