@@ -25,7 +25,7 @@ s := es.NewHandler(client, "index", "type")
 Use this handler with a resource:
 
 ```go
-index.Bind("foo", resource.NewResource(foo, s, resource.DefaultConf)
+index.Bind("foo", foo, s, resource.DefaultConf)
 ```
 
 You may want to create as many ElasticSearch handlers with different index and/or type. You can share the same `elastic` client across all you handlers.
