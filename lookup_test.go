@@ -179,7 +179,7 @@ func TestGetQueryInvalid(t *testing.T) {
 
 func TestGetSort(t *testing.T) {
 	var s []interface{}
-	v := schema.Schema{"id": schema.IDField, "f": schema.Field{Sortable: true}}
+	v := schema.Schema{Fields: schema.Fields{"id": schema.IDField, "f": {Sortable: true}}}
 	s = callGetSort("", v)
 	assert.Equal(t, []interface{}{}, s)
 	s = callGetSort("id", v)
