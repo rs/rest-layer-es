@@ -2,12 +2,12 @@
 package es
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/rs/rest-layer/resource"
-	"golang.org/x/net/context"
 	"gopkg.in/olivere/elastic.v3"
 )
 
@@ -49,7 +49,7 @@ func (h *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 	}
 	// Set the refresh flag to true if requested
 	bulk.Refresh(h.Refresh)
-	res, err := bulk.Do()
+	res, err := bulk.DoC(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("insert error: %v", err)
@@ -74,8 +74,8 @@ func (h *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 // REST layer's etag system. To bridge the two, we first get the document, ensures the etag is valid and
 // use the ES document's version to perform a conditional update. This function encapsulate this check and
 // return either an error or the document version.
-func (h *Handler) validateEtag(id, etag string) (int64, error) {
-	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).FetchSource(false).Fields(etagField).Do()
+func (h *Handler) validateEtag(ctx context.Context, id, etag string) (int64, error) {
+	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).FetchSource(false).Fields(etagField).DoC(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("etag check error: %v", err)
@@ -94,7 +94,7 @@ func (h *Handler) Update(ctx context.Context, item *resource.Item, original *res
 	if !ok {
 		return errors.New("non string IDs are not supported with ElasticSearch")
 	}
-	ver, err := h.validateEtag(id, original.ETag)
+	ver, err := h.validateEtag(ctx, id, original.ETag)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (h *Handler) Update(ctx context.Context, item *resource.Item, original *res
 	if t := ctxTimeout(ctx); t != "" {
 		u.Timeout(t)
 	}
-	_, err = u.Id(id).Doc(doc).Version(ver).Do()
+	_, err = u.Id(id).Doc(doc).Version(ver).DoC(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("update error: %v", err)
@@ -125,7 +125,7 @@ func (h *Handler) Delete(ctx context.Context, item *resource.Item) error {
 	if !ok {
 		return errors.New("non string IDs are not supported with ElasticSearch")
 	}
-	ver, err := h.validateEtag(id, item.ETag)
+	ver, err := h.validateEtag(ctx, id, item.ETag)
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (h *Handler) Delete(ctx context.Context, item *resource.Item) error {
 	}
 	// Set the refresh flag to true if requested
 	d.Refresh(h.Refresh)
-	_, err = d.Id(id).Version(ver).Do()
+	_, err = d.Id(id).Version(ver).DoC(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("delete error: %v", err)
@@ -183,7 +183,7 @@ func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 	}
 
 	// Perform query
-	res, err := s.Do()
+	res, err := s.DoC(ctx)
 	// Translate some generic errors
 	if err != nil {
 		if !translateError(&err) {
@@ -226,7 +226,7 @@ func (h *Handler) MultiGet(ctx context.Context, ids []interface{}) ([]*resource.
 		g.Add(elastic.NewMultiGetItem().Index(h.index).Type(h.typ).Id(id))
 	}
 
-	res, err := g.Do()
+	res, err := g.DoC(ctx)
 
 	if err != nil {
 		if !translateError(&err) {

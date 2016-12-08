@@ -1,13 +1,13 @@
 package es
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/rs/rest-layer/resource"
 	"github.com/rs/rest-layer/schema"
-	"golang.org/x/net/context"
 	"gopkg.in/olivere/elastic.v3"
 )
 

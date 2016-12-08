@@ -1,17 +1,15 @@
 package es
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
 	"time"
 
-	"golang.org/x/net/context"
-
-	"gopkg.in/olivere/elastic.v3"
-
 	"github.com/rs/rest-layer/resource"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/olivere/elastic.v3"
 )
 
 func TestBuildDoc(t *testing.T) {

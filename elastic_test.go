@@ -1,11 +1,10 @@
 package es
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/rs/rest-layer/resource"
 	"github.com/rs/rest-layer/schema"
