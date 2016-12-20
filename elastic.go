@@ -155,7 +155,7 @@ func (h *Handler) Clear(ctx context.Context, lookup *resource.Lookup) (int, erro
 }
 
 // Find items from the ElasticSearch index matching the provided lookup
-func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPage int) (*resource.ItemList, error) {
+func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, offset, limit int) (*resource.ItemList, error) {
 	s := h.client.Search().Index(h.index).Type(h.typ)
 
 	// Apply context deadline if any
@@ -178,8 +178,11 @@ func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 	}
 
 	// Apply pagination
-	if perPage >= 0 {
-		s.From((page - 1) * perPage).Size(perPage)
+	if offset > 0 {
+		s.From(offset)
+	}
+	if limit >= 0 {
+		s.Size(limit)
 	}
 
 	// Perform query
@@ -193,7 +196,7 @@ func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, page, perPa
 	}
 
 	// Fetch the result and return it as a resource.ItemList
-	list := &resource.ItemList{Page: page, Total: 0, Items: []*resource.Item{}}
+	list := &resource.ItemList{Total: 0, Items: []*resource.Item{}}
 	if res.Hits == nil || res.Hits.TotalHits == 0 {
 		return list, nil
 	}
