@@ -88,7 +88,7 @@ func (h *Handler) validateEtag(ctx context.Context, id, etag string) (int64, err
 	return 0, resource.ErrConflict
 }
 
-// Update replace an item by a new one in the ElasticSearch index
+// Update update an item by a new one in the ElasticSearch index
 func (h *Handler) Update(ctx context.Context, item *resource.Item, original *resource.Item) error {
 	id, ok := original.ID.(string)
 	if !ok {
@@ -104,6 +104,38 @@ func (h *Handler) Update(ctx context.Context, item *resource.Item, original *res
 	}
 	doc := buildDoc(item)
 	u := h.client.Update().Index(h.index).Type(h.typ)
+	// Set the refresh flag to true if requested
+	u.Refresh(h.Refresh)
+	// Apply context deadline if any
+	if t := ctxTimeout(ctx); t != "" {
+		u.Timeout(t)
+	}
+	_, err = u.Id(id).Doc(doc).Version(ver).DoC(ctx)
+	if err != nil {
+		if !translateError(&err) {
+			err = fmt.Errorf("update error: %v", err)
+		}
+	}
+	return err
+}
+
+// Replace replace an item by a new one in the ElasticSearch index
+func (h *Handler) Replace(ctx context.Context, item *resource.Item, original *resource.Item) error {
+	id, ok := original.ID.(string)
+	if !ok {
+		return errors.New("non string IDs are not supported with ElasticSearch")
+	}
+	ver, err := h.validateEtag(ctx, id, original.ETag)
+	if err != nil {
+		return err
+	}
+	// Check if context is still valid
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	doc := buildDoc(item)
+
+	u := h.client.Put().Index(h.index).Type(h.typ)
 	// Set the refresh flag to true if requested
 	u.Refresh(h.Refresh)
 	// Apply context deadline if any
