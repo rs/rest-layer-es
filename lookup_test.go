@@ -5,6 +5,7 @@ import (
 
 	"github.com/rs/rest-layer/resource"
 	"github.com/rs/rest-layer/schema"
+	"github.com/rs/rest-layer/schema/query"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +15,15 @@ func (u UnsupportedExpression) Match(p map[string]interface{}) bool {
 	return false
 }
 
-func callGetQuery(q schema.Query) (interface{}, error) {
+func (u UnsupportedExpression) Validate(v schema.Validator) error {
+	return nil
+}
+
+func (u UnsupportedExpression) String() string {
+	return ""
+}
+
+func callGetQuery(q query.Query) (interface{}, error) {
 	l := resource.NewLookup()
 	l.AddQuery(q)
 	Q, err := getQuery(l)
@@ -38,21 +47,21 @@ func callGetSort(s string, v schema.Validator) []interface{} {
 func TestGetQuery(t *testing.T) {
 	var s interface{}
 	var err error
-	s, err = callGetQuery(schema.Query{schema.Equal{Field: "id", Value: "foo"}})
+	s, err = callGetQuery(query.Query{query.Equal{Field: "id", Value: "foo"}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"term": map[string]interface{}{
 			"_id": "foo",
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.Equal{Field: "f", Value: "foo"}})
+	s, err = callGetQuery(query.Query{query.Equal{Field: "f", Value: "foo"}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"term": map[string]interface{}{
 			"f": "foo",
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.NotEqual{Field: "f", Value: "foo"}})
+	s, err = callGetQuery(query.Query{query.NotEqual{Field: "f", Value: "foo"}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"bool": map[string]interface{}{
@@ -63,7 +72,7 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.GreaterThan{Field: "f", Value: 1}})
+	s, err = callGetQuery(query.Query{query.GreaterThan{Field: "f", Value: 1}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"range": map[string]interface{}{
@@ -75,7 +84,7 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.GreaterOrEqual{Field: "f", Value: 1}})
+	s, err = callGetQuery(query.Query{query.GreaterOrEqual{Field: "f", Value: 1}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"range": map[string]interface{}{
@@ -87,7 +96,7 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.LowerThan{Field: "f", Value: 1}})
+	s, err = callGetQuery(query.Query{query.LowerThan{Field: "f", Value: 1}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"range": map[string]interface{}{
@@ -99,7 +108,7 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.LowerOrEqual{Field: "f", Value: 1}})
+	s, err = callGetQuery(query.Query{query.LowerOrEqual{Field: "f", Value: 1}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"range": map[string]interface{}{
@@ -111,14 +120,14 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.In{Field: "f", Values: []schema.Value{"foo", "bar"}}})
+	s, err = callGetQuery(query.Query{query.In{Field: "f", Values: []query.Value{"foo", "bar"}}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"terms": map[string]interface{}{
 			"f": []interface{}{"foo", "bar"},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.NotIn{Field: "f", Values: []schema.Value{"foo", "bar"}}})
+	s, err = callGetQuery(query.Query{query.NotIn{Field: "f", Values: []query.Value{"foo", "bar"}}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"bool": map[string]interface{}{
@@ -129,7 +138,7 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.And{schema.Equal{Field: "f", Value: "foo"}, schema.Equal{Field: "f", Value: "bar"}}})
+	s, err = callGetQuery(query.Query{query.And{query.Equal{Field: "f", Value: "foo"}, query.Equal{Field: "f", Value: "bar"}}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"bool": map[string]interface{}{
@@ -147,7 +156,7 @@ func TestGetQuery(t *testing.T) {
 			},
 		},
 	}, s)
-	s, err = callGetQuery(schema.Query{schema.Or{schema.Equal{Field: "f", Value: "foo"}, schema.Equal{Field: "f", Value: "bar"}}})
+	s, err = callGetQuery(query.Query{query.Or{query.Equal{Field: "f", Value: "foo"}, query.Equal{Field: "f", Value: "bar"}}})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{
 		"bool": map[string]interface{}{
@@ -169,11 +178,11 @@ func TestGetQuery(t *testing.T) {
 
 func TestGetQueryInvalid(t *testing.T) {
 	var err error
-	_, err = callGetQuery(schema.Query{UnsupportedExpression{}})
+	_, err = callGetQuery(query.Query{UnsupportedExpression{}})
 	assert.Equal(t, resource.ErrNotImplemented, err)
-	_, err = callGetQuery(schema.Query{schema.And{UnsupportedExpression{}}})
+	_, err = callGetQuery(query.Query{query.And{UnsupportedExpression{}}})
 	assert.Equal(t, resource.ErrNotImplemented, err)
-	_, err = callGetQuery(schema.Query{schema.Or{UnsupportedExpression{}}})
+	_, err = callGetQuery(query.Query{query.Or{UnsupportedExpression{}}})
 	assert.Equal(t, resource.ErrNotImplemented, err)
 }
 
