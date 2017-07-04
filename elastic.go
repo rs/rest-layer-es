@@ -219,7 +219,7 @@ func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, offset, lim
 func (h *Handler) MultiGet(ctx context.Context, ids []interface{}) ([]*resource.Item, error) {
 	g := h.client.MultiGet()
 
-	// Add item ids to retreive
+	// Add item ids to retrieve
 	for _, v := range ids {
 		id, ok := v.(string)
 		if !ok {
