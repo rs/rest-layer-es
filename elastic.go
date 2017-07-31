@@ -8,7 +8,8 @@ import (
 	"fmt"
 
 	"github.com/rs/rest-layer/resource"
-	"gopkg.in/olivere/elastic.v3"
+	"github.com/rs/rest-layer/schema/query"
+	"gopkg.in/olivere/elastic.v5"
 )
 
 // Handler handles resource storage in an ElasticSearch index.
@@ -18,16 +19,18 @@ type Handler struct {
 	typ    string
 	// Refresh sets the refresh flag to true on all write operation to ensure
 	// writes are reflected into search results immediately after the operation.
-	// Setting this parameter to true has performance impacts.
-	Refresh bool
+	// Setting this parameter to "true" has performance impacts.
+	Refresh string
 }
 
-// NewHandler creates an new ElasticSearch storage handler for the given index/type
+// NewHandler creates an new ElasticSearch storage handler for the given
+// index/type
 func NewHandler(client *elastic.Client, index, typ string) *Handler {
 	return &Handler{
-		client: client,
-		index:  index,
-		typ:    typ,
+		client:  client,
+		index:   index,
+		typ:     typ,
+		Refresh: "false",
 	}
 }
 
@@ -49,17 +52,17 @@ func (h *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 	}
 	// Set the refresh flag to true if requested
 	bulk.Refresh(h.Refresh)
-	res, err := bulk.DoC(ctx)
+	res, err := bulk.Do(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("insert error: %v", err)
 		}
 	} else if res.Errors {
 		for i, f := range res.Failed() {
-			// CAVEAT on a bulk insert, if some items are in error, the operation is not atomic
-			// and the request will partially succeed. I don't see how to perform atomic bulk insert
-			// with ES.
-			if f.Error.Type == "document_already_exists_exception" {
+			// CAVEAT on a bulk insert, if some items are in error, the
+			// operation is not atomic and the request will partially succeed. I
+			// don't see how to perform atomic bulk insert with ES.
+			if isConflict(f.Error) {
 				err = resource.ErrConflict
 			} else {
 				err = fmt.Errorf("insert error on item #%d: %#v", i+1, f.Error)
@@ -70,19 +73,23 @@ func (h *Handler) Insert(ctx context.Context, items []*resource.Item) error {
 	return err
 }
 
-// Elastic Search provides it's own concurrency update mecanism using numerical versioning incompatible with
-// REST layer's etag system. To bridge the two, we first get the document, ensures the etag is valid and
-// use the ES document's version to perform a conditional update. This function encapsulate this check and
-// return either an error or the document version.
+// Elastic Search provides it's own concurrency update mechanism using numerical
+// versioning incompatible with REST layer's etag system. To bridge the two, we
+// first get the document, ensures the etag is valid and use the ES document's
+// version to perform a conditional update. This function encapsulate this check
+// and return either an error or the document version.
 func (h *Handler) validateEtag(ctx context.Context, id, etag string) (int64, error) {
-	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).FetchSource(false).Fields(etagField).DoC(ctx)
+	fsc := elastic.NewFetchSourceContext(true).Include(etagField)
+	res, err := h.client.Get().Index(h.index).Type(h.typ).Id(id).FetchSourceContext(fsc).Do(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("etag check error: %v", err)
 		}
 		return 0, err
 	}
-	if f, ok := res.Fields[etagField].([]interface{}); ok && res.Version != nil && len(f) == 1 && f[0] == etag {
+	// XXX make a real parser
+	b, _ := res.Source.MarshalJSON()
+	if string(b) == `{"`+etagField+`":"`+etag+`"}` {
 		return *res.Version, nil
 	}
 	return 0, resource.ErrConflict
@@ -104,13 +111,13 @@ func (h *Handler) Update(ctx context.Context, item *resource.Item, original *res
 	}
 	doc := buildDoc(item)
 	u := h.client.Update().Index(h.index).Type(h.typ)
-	// Set the refresh flag to true if requested
+	// Set the refresh flag to requested value
 	u.Refresh(h.Refresh)
 	// Apply context deadline if any
 	if t := ctxTimeout(ctx); t != "" {
 		u.Timeout(t)
 	}
-	_, err = u.Id(id).Doc(doc).Version(ver).DoC(ctx)
+	_, err = u.Id(id).Doc(doc).Version(ver).Do(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("update error: %v", err)
@@ -140,7 +147,7 @@ func (h *Handler) Delete(ctx context.Context, item *resource.Item) error {
 	}
 	// Set the refresh flag to true if requested
 	d.Refresh(h.Refresh)
-	_, err = d.Id(id).Version(ver).DoC(ctx)
+	_, err = d.Id(id).Version(ver).Do(ctx)
 	if err != nil {
 		if !translateError(&err) {
 			err = fmt.Errorf("delete error: %v", err)
@@ -150,12 +157,12 @@ func (h *Handler) Delete(ctx context.Context, item *resource.Item) error {
 }
 
 // Clear clears all items from the ElasticSearch index matching the lookup
-func (h *Handler) Clear(ctx context.Context, lookup *resource.Lookup) (int, error) {
+func (h *Handler) Clear(ctx context.Context, q *query.Query) (int, error) {
 	return 0, resource.ErrNotImplemented
 }
 
 // Find items from the ElasticSearch index matching the provided lookup
-func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, offset, limit int) (*resource.ItemList, error) {
+func (h *Handler) Find(ctx context.Context, q *query.Query) (*resource.ItemList, error) {
 	s := h.client.Search().Index(h.index).Type(h.typ)
 
 	// Apply context deadline if any
@@ -164,29 +171,31 @@ func (h *Handler) Find(ctx context.Context, lookup *resource.Lookup, offset, lim
 	}
 
 	// Apply query
-	q, err := getQuery(lookup)
+	qry, err := getQuery(q)
 	if err != nil {
-		return nil, fmt.Errorf("find query tranlation error (index=%s, type=%s): %v", h.index, h.typ, err)
+		return nil, fmt.Errorf("find query translation error (index=%s, type=%s): %v", h.index, h.typ, err)
 	}
-	if q != nil {
-		s.Query(q)
+	if qry != nil {
+		s.Query(qry)
 	}
 
 	// Apply sort
-	if sf := getSort(lookup); len(sf) > 0 {
-		s.SortBy(sf...)
+	if srt := getSort(q); len(srt) > 0 {
+		s.SortBy(srt...)
 	}
 
 	// Apply pagination
-	if offset > 0 {
-		s.From(offset)
-	}
-	if limit >= 0 {
-		s.Size(limit)
+	if q.Window != nil {
+		if q.Window.Offset > 0 {
+			s.From(q.Window.Offset)
+		}
+		if q.Window.Limit >= 0 {
+			s.Size(q.Window.Limit)
+		}
 	}
 
 	// Perform query
-	res, err := s.DoC(ctx)
+	res, err := s.Do(ctx)
 	// Translate some generic errors
 	if err != nil {
 		if !translateError(&err) {
@@ -229,7 +238,7 @@ func (h *Handler) MultiGet(ctx context.Context, ids []interface{}) ([]*resource.
 		g.Add(elastic.NewMultiGetItem().Index(h.index).Type(h.typ).Id(id))
 	}
 
-	res, err := g.DoC(ctx)
+	res, err := g.Do(ctx)
 
 	if err != nil {
 		if !translateError(&err) {

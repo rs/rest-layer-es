@@ -3,7 +3,7 @@ package es
 import (
 	"github.com/rs/rest-layer/resource"
 	"github.com/rs/rest-layer/schema/query"
-	"gopkg.in/olivere/elastic.v3"
+	"gopkg.in/olivere/elastic.v5"
 )
 
 // getField translate a schema field into a ES field:
@@ -17,8 +17,8 @@ func getField(f string) string {
 }
 
 // getQuery transform a resource.Lookup into a ES query
-func getQuery(l *resource.Lookup) (elastic.Query, error) {
-	qs, err := translateQuery(l.Filter())
+func getQuery(q *query.Query) (elastic.Query, error) {
+	qs, err := translatePredicate(q.Predicate)
 	if err != nil {
 		return nil, err
 	}
@@ -36,30 +36,29 @@ func getQuery(l *resource.Lookup) (elastic.Query, error) {
 }
 
 // getSort transform a resource.Lookup into an ES sort list.
-func getSort(l *resource.Lookup) []elastic.Sorter {
-	ln := len(l.Sort())
-	if ln == 0 {
+func getSort(q *query.Query) []elastic.Sorter {
+	if len(q.Sort) == 0 {
 		return nil
 	}
-	s := make([]elastic.Sorter, ln)
-	for i, sort := range l.Sort() {
-		if len(sort) > 0 && sort[0] == '-' {
-			s[i] = elastic.NewFieldSort(getField(sort[1:])).Desc()
+	s := make([]elastic.Sorter, len(q.Sort))
+	for i, sort := range q.Sort {
+		if sort.Reversed {
+			s[i] = elastic.NewFieldSort(getField(sort.Name)).Desc()
 		} else {
-			s[i] = elastic.NewFieldSort(getField(sort)).Asc()
+			s[i] = elastic.NewFieldSort(getField(sort.Name)).Asc()
 		}
 	}
 	return s
 }
 
-func translateQuery(q query.Query) ([]elastic.Query, error) {
+func translatePredicate(q query.Predicate) ([]elastic.Query, error) {
 	qs := []elastic.Query{}
 	for _, exp := range q {
 		switch t := exp.(type) {
 		case query.And:
 			and := elastic.NewBoolQuery()
 			for _, subExp := range t {
-				sq, err := translateQuery(query.Query{subExp})
+				sq, err := translatePredicate(query.Predicate{subExp})
 				if err != nil {
 					return nil, err
 				}
@@ -69,7 +68,7 @@ func translateQuery(q query.Query) ([]elastic.Query, error) {
 		case query.Or:
 			or := elastic.NewBoolQuery()
 			for _, subExp := range t {
-				sq, err := translateQuery(query.Query{subExp})
+				sq, err := translatePredicate(query.Predicate{subExp})
 				if err != nil {
 					return nil, err
 				}

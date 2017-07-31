@@ -3,12 +3,11 @@ package es
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/rs/rest-layer/resource"
 	"github.com/rs/rest-layer/schema/query"
-	"gopkg.in/olivere/elastic.v3"
+	"gopkg.in/olivere/elastic.v5"
 )
 
 const (
@@ -55,8 +54,11 @@ func buildItem(id string, d map[string]interface{}) *resource.Item {
 }
 
 func isConflict(err interface{}) bool {
-	if e, ok := err.(*elastic.Error); ok {
-		return e.Status == http.StatusConflict
+	if elastic.IsConflict(err) {
+		return true
+	}
+	if e, ok := err.(*elastic.ErrorDetails); ok {
+		return e.Type == "version_conflict_engine_exception"
 	}
 	return false
 }
