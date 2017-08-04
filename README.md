@@ -4,13 +4,15 @@
 
 This [REST Layer](https://github.com/rs/rest-layer) resource storage backend stores data in an ElasticSearch cluster using [olivere/elastic](http://gopkg.in/olivere/elastic.v3).
 
+ElasticSearch v5+ is required.
+
 ## Usage
 
 ```go
 import "github.com/rs/rest-layer-es"
 ```
 
-Create an [elastic]("http://gopkg.in/olivere/elastic.v3") client:
+Create an [elastic]("http://gopkg.in/olivere/elastic.v5") client:
 
 ```go
 client, err := elastic.NewClient()

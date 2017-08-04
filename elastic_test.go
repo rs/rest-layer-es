@@ -231,38 +231,95 @@ func TestFind(t *testing.T) {
 		}
 	}
 
-	// FIXME $in and $nin are broken with "Fielddata is disabled on text fields by default." error.
-	// q, err = query.New("", `{name:{$in:["c","d"]}}`, "name", query.Page(1, 100, 0))
-	// if assert.NoError(t, err) {
-	// 	l, err := h.Find(ctx, q)
-	// 	if assert.NoError(t, err) {
-	// 		assert.Equal(t, 2, l.Total)
-	// 		if assert.Len(t, l.Items, 2) {
-	// 			item := l.Items[0]
-	// 			assert.Equal(t, "3", item.ID)
-	// 			assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
-	// 			item = l.Items[1]
-	// 			assert.Equal(t, "4", item.ID)
-	// 			assert.Equal(t, map[string]interface{}{"id": "4", "name": "d", "age": float64(4)}, item.Payload)
-	// 		}
-	// 	}
-	// }
+	q, err = query.New("", `{name:{$in:["c","d"]}}`, "name", query.Page(1, 100, 0))
+	if assert.NoError(t, err) {
+		l, err := h.Find(ctx, q)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 2, l.Total)
+			if assert.Len(t, l.Items, 2) {
+				item := l.Items[0]
+				assert.Equal(t, "3", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
+				item = l.Items[1]
+				assert.Equal(t, "4", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "4", "name": "d", "age": float64(4)}, item.Payload)
+			}
+		}
+	}
 
-	// q, err = query.New("", `{name:{$nin:["c","d"]}}`, "name", query.Page(1, 100, 0))
-	// if assert.NoError(t, err) {
-	// 	l, err := h.Find(ctx, q)
-	// 	if assert.NoError(t, err) {
-	// 		assert.Equal(t, 2, l.Total)
-	// 		if assert.Len(t, l.Items, 2) {
-	// 			item := l.Items[0]
-	// 			assert.Equal(t, "3", item.ID)
-	// 			assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
-	// 			item = l.Items[1]
-	// 			assert.Equal(t, "4", item.ID)
-	// 			assert.Equal(t, map[string]interface{}{"id": "4", "name": "d", "age": float64(4)}, item.Payload)
-	// 		}
-	// 	}
-	// }
+	q, err = query.New("", `{name:{$nin:["c","d"]}}`, "name", query.Page(1, 100, 0))
+	if assert.NoError(t, err) {
+		l, err := h.Find(ctx, q)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 2, l.Total)
+			if assert.Len(t, l.Items, 2) {
+				item := l.Items[0]
+				assert.Equal(t, "1", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "1", "name": "a", "age": float64(1)}, item.Payload)
+				item = l.Items[1]
+				assert.Equal(t, "2", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "2", "name": "b", "age": float64(2)}, item.Payload)
+			}
+		}
+	}
+
+	q, err = query.New("", `{age:{$lt:2}}`, "name", query.Page(1, 100, 0))
+	if assert.NoError(t, err) {
+		l, err := h.Find(ctx, q)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 1, l.Total)
+			if assert.Len(t, l.Items, 1) {
+				item := l.Items[0]
+				assert.Equal(t, "1", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "1", "name": "a", "age": float64(1)}, item.Payload)
+			}
+		}
+	}
+
+	q, err = query.New("", `{age:{$lte:2}}`, "name", query.Page(1, 100, 0))
+	if assert.NoError(t, err) {
+		l, err := h.Find(ctx, q)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 2, l.Total)
+			if assert.Len(t, l.Items, 2) {
+				item := l.Items[0]
+				assert.Equal(t, "1", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "1", "name": "a", "age": float64(1)}, item.Payload)
+				item = l.Items[1]
+				assert.Equal(t, "2", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "2", "name": "b", "age": float64(2)}, item.Payload)
+			}
+		}
+	}
+
+	q, err = query.New("", `{age:{$gt:3}}`, "name", query.Page(1, 100, 0))
+	if assert.NoError(t, err) {
+		l, err := h.Find(ctx, q)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 1, l.Total)
+			if assert.Len(t, l.Items, 1) {
+				item := l.Items[0]
+				assert.Equal(t, "4", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "4", "name": "d", "age": float64(4)}, item.Payload)
+			}
+		}
+	}
+
+	q, err = query.New("", `{age:{$gte:3}}`, "name", query.Page(1, 100, 0))
+	if assert.NoError(t, err) {
+		l, err := h.Find(ctx, q)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 2, l.Total)
+			if assert.Len(t, l.Items, 2) {
+				item := l.Items[0]
+				assert.Equal(t, "3", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "3", "name": "c", "age": float64(3)}, item.Payload)
+				item = l.Items[1]
+				assert.Equal(t, "4", item.ID)
+				assert.Equal(t, map[string]interface{}{"id": "4", "name": "d", "age": float64(4)}, item.Payload)
+			}
+		}
+	}
 
 	q, err = query.New("", `{id:"3"}`, "", query.Page(1, 1, 0))
 	if assert.NoError(t, err) {
