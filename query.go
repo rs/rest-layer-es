@@ -9,9 +9,12 @@ import (
 // getField translate a schema field into a ES field:
 //
 //  - id -> _id with in order to tape on the ES _id key
-func getField(f string) string {
+//  - keyword=true -> appends .keyword to the field name
+func getField(f string, keyword bool) string {
 	if f == "id" {
 		return "_id"
+	} else if keyword {
+		return f + ".keyword"
 	}
 	return f
 }
@@ -43,9 +46,9 @@ func getSort(q *query.Query) []elastic.Sorter {
 	s := make([]elastic.Sorter, len(q.Sort))
 	for i, sort := range q.Sort {
 		if sort.Reversed {
-			s[i] = elastic.NewFieldSort(getField(sort.Name)).Desc()
+			s[i] = elastic.NewFieldSort(getField(sort.Name, true)).Desc()
 		} else {
-			s[i] = elastic.NewFieldSort(getField(sort.Name)).Asc()
+			s[i] = elastic.NewFieldSort(getField(sort.Name, true)).Asc()
 		}
 	}
 	return s
@@ -76,32 +79,28 @@ func translatePredicate(q query.Predicate) ([]elastic.Query, error) {
 			}
 			qs = append(qs, or)
 		case query.In:
-			qs = append(qs, elastic.NewTermsQuery(getField(t.Field), valuesToInterface(t.Values)...))
+			qs = append(qs, elastic.NewTermsQuery(getField(t.Field, true), valuesToInterface(t.Values)...))
 		case query.NotIn:
 			b := elastic.NewBoolQuery()
-			b.MustNot(elastic.NewTermsQuery(getField(t.Field), valuesToInterface(t.Values)...))
+			b.MustNot(elastic.NewTermsQuery(getField(t.Field, true), valuesToInterface(t.Values)...))
 			qs = append(qs, b)
 		case query.Equal:
-			qs = append(qs, elastic.NewTermQuery(getField(t.Field), t.Value))
+			qs = append(qs, elastic.NewTermQuery(getField(t.Field, true), t.Value))
 		case query.NotEqual:
 			b := elastic.NewBoolQuery()
-			b.MustNot(elastic.NewTermQuery(getField(t.Field), t.Value))
+			b.MustNot(elastic.NewTermQuery(getField(t.Field, true), t.Value))
 			qs = append(qs, b)
 		case query.GreaterThan:
-			r := elastic.NewRangeQuery(getField(t.Field))
-			r.Gt(t.Value)
+			r := elastic.NewRangeQuery(getField(t.Field, false)).Gt(t.Value)
 			qs = append(qs, r)
 		case query.GreaterOrEqual:
-			r := elastic.NewRangeQuery(getField(t.Field))
-			r.Gte(t.Value)
+			r := elastic.NewRangeQuery(getField(t.Field, false)).Gte(t.Value)
 			qs = append(qs, r)
 		case query.LowerThan:
-			r := elastic.NewRangeQuery(getField(t.Field))
-			r.Lt(t.Value)
+			r := elastic.NewRangeQuery(getField(t.Field, false)).Lt(t.Value)
 			qs = append(qs, r)
 		case query.LowerOrEqual:
-			r := elastic.NewRangeQuery(getField(t.Field))
-			r.Lte(t.Value)
+			r := elastic.NewRangeQuery(getField(t.Field, false)).Lte(t.Value)
 			qs = append(qs, r)
 		default:
 			return nil, resource.ErrNotImplemented
