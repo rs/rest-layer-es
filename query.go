@@ -58,9 +58,9 @@ func translatePredicate(q query.Predicate) ([]elastic.Query, error) {
 	qs := []elastic.Query{}
 	for _, exp := range q {
 		switch t := exp.(type) {
-		case query.And:
+		case *query.And:
 			and := elastic.NewBoolQuery()
-			for _, subExp := range t {
+			for _, subExp := range *t {
 				sq, err := translatePredicate(query.Predicate{subExp})
 				if err != nil {
 					return nil, err
@@ -68,9 +68,9 @@ func translatePredicate(q query.Predicate) ([]elastic.Query, error) {
 				and.Must(sq...)
 			}
 			qs = append(qs, and)
-		case query.Or:
+		case *query.Or:
 			or := elastic.NewBoolQuery()
-			for _, subExp := range t {
+			for _, subExp := range *t {
 				sq, err := translatePredicate(query.Predicate{subExp})
 				if err != nil {
 					return nil, err
@@ -78,28 +78,28 @@ func translatePredicate(q query.Predicate) ([]elastic.Query, error) {
 				or.Should(sq...)
 			}
 			qs = append(qs, or)
-		case query.In:
+		case *query.In:
 			qs = append(qs, elastic.NewTermsQuery(getField(t.Field, true), valuesToInterface(t.Values)...))
-		case query.NotIn:
+		case *query.NotIn:
 			b := elastic.NewBoolQuery()
 			b.MustNot(elastic.NewTermsQuery(getField(t.Field, true), valuesToInterface(t.Values)...))
 			qs = append(qs, b)
-		case query.Equal:
+		case *query.Equal:
 			qs = append(qs, elastic.NewTermQuery(getField(t.Field, true), t.Value))
-		case query.NotEqual:
+		case *query.NotEqual:
 			b := elastic.NewBoolQuery()
 			b.MustNot(elastic.NewTermQuery(getField(t.Field, true), t.Value))
 			qs = append(qs, b)
-		case query.GreaterThan:
+		case *query.GreaterThan:
 			r := elastic.NewRangeQuery(getField(t.Field, false)).Gt(t.Value)
 			qs = append(qs, r)
-		case query.GreaterOrEqual:
+		case *query.GreaterOrEqual:
 			r := elastic.NewRangeQuery(getField(t.Field, false)).Gte(t.Value)
 			qs = append(qs, r)
-		case query.LowerThan:
+		case *query.LowerThan:
 			r := elastic.NewRangeQuery(getField(t.Field, false)).Lt(t.Value)
 			qs = append(qs, r)
-		case query.LowerOrEqual:
+		case *query.LowerOrEqual:
 			r := elastic.NewRangeQuery(getField(t.Field, false)).Lte(t.Value)
 			qs = append(qs, r)
 		default:
